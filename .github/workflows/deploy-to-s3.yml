@@ -1,31 +1,82 @@
-name: Zip and Upload to S3
+name: Deploy Spring Boot App to AWS Elastic Beanstalk
 
 on:
   push:
-    branches:
-      - main  # Trigger on pushes to main; adjust if needed (e.g., for releases)
+    branches: [ "main" ]
 
 jobs:
-  build-and-upload:
-    runs-on: ubuntu-latest  # Use the latest Ubuntu runner
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: "eu-west-1"
+      S3_BUCKET: "taylor-beanstalk-bucket"  # Your bucket
+      EB_APPLICATION_NAME: "Taylor-welcome-app"  # Your app name
+      EB_ENVIRONMENT_NAME: "Taylor-welcome-app-env"  # Your environment
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4  # Checks out the repository code
+      # Step 1: Check out the repository code
+      - name: Checkout source code
+        uses: actions/checkout@v4
 
-      - name: Set up AWS CLI
+      # Step 2: Set up Java
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'  # Matches your Java 21 requirement
+          distribution: 'temurin'  # Compatible with EB's Corretto
+          cache: 'maven'  # Cache Maven dependencies
+
+      # Step 3: Build Spring Boot app
+      - name: Build with Maven
+        run: |
+          mvn clean package -DskipTests  # Build JAR, skip tests
+          ls -l target/  # Verify JAR exists
+
+      # Step 4: Generate a timestamped zip file name for the deployment package
+      - name: Generate deployment package name
+        id: package-name
+        run: echo "package_name=deploy-${{ github.sha }}.zip" >> $GITHUB_OUTPUT
+
+      # Step 5: Create deployment bundle
+      - name: Create deployment bundle
+        run: |
+          mkdir bundle
+          cp target/*.jar bundle/application.jar  # Copy the JAR
+          echo "web: java -jar application.jar" > bundle/Procfile  # Procfile for EB
+          cd bundle
+          zip -r ../${{ steps.package-name.outputs.package_name }} application.jar Procfile
+          ls -l ..  # Verify zip file exists
+
+      # Step 6: Configure AWS credentials
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}  # Or hardcode if preferred, e.g., us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Zip the application code
+      # Step 7: Verify S3 bucket access
+      - name: Verify S3 bucket access
+        run: aws s3 ls s3://${{ env.S3_BUCKET }}/  # Ensure bucket exists
+
+      # Step 8: Upload the deployment package to S3
+      - name: Copy deployment package to S3 bucket
+        run: aws s3 cp ${{ steps.package-name.outputs.package_name }} s3://${{ env.S3_BUCKET }}/
+
+      # Step 9: Create a new application version in Elastic Beanstalk
+      - name: Create new Elastic Beanstalk application version
         run: |
-          # Zip the current directory (source bundle for EB)
-          zip -r app-bundle.zip . -x '*.git*'  # Exclude .git folder; add more exclusions if needed via .gitignore
-          
-      - name: Upload zip to S3
+          aws elasticbeanstalk create-application-version \
+            --application-name ${{ env.EB_APPLICATION_NAME }} \
+            --version-label "ver-${{ github.sha }}" \
+            --source-bundle S3Bucket="${{ env.S3_BUCKET }}",S3Key="${{ steps.package-name.outputs.package_name }}" \
+            --description "Commit ${{ github.sha }}"
+
+      # Step 10: Deploy the new version to Elastic Beanstalk environment
+      - name: Deploy new version to Elastic Beanstalk environment
         run: |
-          aws s3 cp app-bundle.zip s3://taylor-beanstalk-bucket/app-bundle-${{ github.sha }}.zip  # Upload with unique name based on commit SHA
-         
+          aws elasticbeanstalk update-environment \
+            --application-name ${{ env.EB_APPLICATION_NAME }} \
+            --environment-name ${{ env.EB_ENVIRONMENT_NAME }} \
+            --version-label "ver-${{ github.sha }}"
