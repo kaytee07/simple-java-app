@@ -28,4 +28,4 @@ jobs:
       - name: Upload zip to S3
         run: |
           aws s3 cp app-bundle.zip s3://taylor-beanstalk-bucket/app-bundle-${{ github.sha }}.zip  # Upload with unique name based on commit SHA
-          # Replace 'your-app-bundles' with your actual S3 bucket name
+         
