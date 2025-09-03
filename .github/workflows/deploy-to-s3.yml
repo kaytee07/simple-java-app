@@ -1,0 +1,31 @@
+name: Zip and Upload to S3
+
+on:
+  push:
+    branches:
+      - main  # Trigger on pushes to main; adjust if needed (e.g., for releases)
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest  # Use the latest Ubuntu runner
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4  # Checks out the repository code
+
+      - name: Set up AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}  # Or hardcode if preferred, e.g., us-east-1
+
+      - name: Zip the application code
+        run: |
+          # Zip the current directory (source bundle for EB)
+          zip -r app-bundle.zip . -x '*.git*'  # Exclude .git folder; add more exclusions if needed via .gitignore
+          
+      - name: Upload zip to S3
+        run: |
+          aws s3 cp app-bundle.zip s3://taylor-beanstalk-bucket/app-bundle-${{ github.sha }}.zip  # Upload with unique name based on commit SHA
+          # Replace 'your-app-bundles' with your actual S3 bucket name
