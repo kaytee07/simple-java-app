@@ -15,7 +15,7 @@ public class BeanstalkProjectApplication {
 
     @GetMapping("/")
     public String index() {
-        return "Hello World! Kofi Taylor Winful Benedict";
+        return "Hello World! Kofi Taylor Winful. A backend engineer!";
     }
 
 }
